@@ -1,0 +1,109 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.require_version ">= 2.0.0"
+
+CONFIG = 'vagrant/config.rb'
+
+SUPPORTED_OS = {
+#  "ubuntu1604"          => {box: "generic/ubuntu1604",         user: "vagrant"},
+  "ubuntu1804"          => {box: "bento/ubuntu-18.04",         user: "vagrant"},
+#  "ubuntu2004"          => {box: "geerlingguy/ubuntu2004",     user: "vagrant"},
+#  "centos"              => {box: "centos/7",                   user: "vagrant"},
+#  "centos-bento"        => {box: "bento/centos-7.6",           user: "vagrant"},
+#  "centos8"             => {box: "centos/8",                   user: "vagrant"},
+#  "centos8-bento"       => {box: "bento/centos-8",             user: "vagrant"},
+}
+
+# Defaults for config options defined in CONFIG
+#$num_instances ||= 2
+$num_instances ||= 1
+$num_k8s_master ||= 1
+$instance_name_prefix ||= "kube"
+$vm_gui ||= false
+$vm_cpus ||= 2
+$shared_folders ||= {}
+$forwarded_ports ||= {}
+$subnet ||= "192.168.33"
+$os ||= "ubuntu1804"
+
+$box = SUPPORTED_OS[$os][:box]
+
+Vagrant.configure("2") do |config|
+
+  config.vm.box = $box
+  config.ssh.username = SUPPORTED_OS[$os][:user]
+
+  (1..$num_instances).each do |i|
+    config.vm.define vm_name = "%s-%01d" % [$instance_name_prefix, i] do |node|
+
+      node.vm.hostname = vm_name
+
+      node.vm.provider :virtualbox do |vb|
+        vb.cpus = $vm_cpus
+        vb.gui = $vm_gui
+        vb.linked_clone = true
+        vb.customize ["modifyvm", :id, "--vram", "8"] # ubuntu defaults to 256 MB which is a waste of precious RAM
+        vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+      end
+
+      node.vm.synced_folder ".", "/vagrant", disabled: false, type: "rsync", rsync__args: ['--verbose', '--archive', '--delete', '-z'] , rsync__exclude: ['.git','venv']
+      $shared_folders.each do |src, dst|
+        node.vm.synced_folder src, dst, type: "rsync", rsync__args: ['--verbose', '--archive', '--delete', '-z']
+      end
+
+      ip = "#{$subnet}.#{i+100}"
+      node.vm.network :private_network, ip: ip, virtualbox__intnet: "kubernetes"
+
+      node.vm.provision "shell", run: "always", inline: "swapoff -a"
+
+      node.vm.provision "shell", inline: <<-SHELL
+        apt-get update
+        apt-get install -y docker.io apt-transport-https curl
+        systemctl start docker
+        systemctl enable docker
+        curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+        apt-add-repository 'deb http://apt.kubernetes.io/ kubernetes-xenial main'
+        apt-get update
+        apt-get install -y kubelet kubeadm kubectl
+        systemctl enable kubelet
+      SHELL
+
+      node.vm.provision "shell", run: "always", inline: <<-SHELL
+        HOST_IP=`netstat -rn | grep "^0.0.0.0 " | cut -d " " -f10`
+        echo '{ "insecure-registries":["HOST_IP:5000"] }' > /etc/docker/daemon.json
+        sed -ie -e "s/HOST_IP/${HOST_IP}/g" /etc/docker/daemon.json
+        systemctl restart docker
+      SHELL
+
+      if i == $num_k8s_master
+        node.vm.provider :virtualbox do |vb|
+          vb.memory = 4096
+        end
+
+        node.vm.network "forwarded_port", guest: 6443, host: 16443, host_ip: "127.0.0.1", auto_correct: true
+        node.vm.network "forwarded_port", guest: 2379, host: 12379, host_ip: "127.0.0.1", auto_correct: true
+        node.vm.network "forwarded_port", guest: 30081, host: 9090, host_ip: "127.0.0.1", auto_correct: true
+        node.vm.network "forwarded_port", guest: 30082, host: 3000, host_ip: "127.0.0.1", auto_correct: true
+#        node.vm.network "forwarded_port", guest: 8000, host: 8000, host_ip: "127.0.0.1", auto_correct: true
+
+        node.vm.provision "shell", inline: <<-SHELL
+          kubeadm init --apiserver-advertise-address=#{$subnet}.#{i+100} --pod-network-cidr=10.244.10.0/16 --apiserver-cert-extra-sans=127.0.0.1
+          mkdir /home/vagrant/.kube
+          cp /etc/kubernetes/admin.conf /home/vagrant/.kube/config
+          chown vagrant:vagrant /home/vagrant/.kube/config
+          kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml
+          kubectl taint nodes --all node-role.kubernetes.io/master-
+        SHELL
+
+        node.vm.provision "shell", inline: "kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/master-"
+
+      else
+        node.vm.provider :virtualbox do |vb|
+          vb.memory = 2048
+        end
+      end
+
+    end
+  end
+end
