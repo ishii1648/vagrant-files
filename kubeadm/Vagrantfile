@@ -3,23 +3,20 @@
 
 Vagrant.require_version ">= 2.0.0"
 
-CONFIG = 'vagrant/config.rb'
-
 SUPPORTED_OS = {
-  "ubuntu1804"          => {box: "bento/ubuntu-18.04",         user: "vagrant"},
+  "ubuntu1804" => {box: "bento/ubuntu-18.04", user: "vagrant"},
 }
 
-# Defaults for config options defined in CONFIG
-#$num_instances ||= 2
-$num_instances ||= 1
-$num_k8s_master ||= 1
-$instance_name_prefix ||= "kube"
-$vm_gui ||= false
-$vm_cpus ||= 2
-$shared_folders ||= {}
-$forwarded_ports ||= {}
-$subnet ||= "192.168.34"
-$os ||= "ubuntu1804"
+#$num_instances = 2
+$num_instances = 1
+$num_k8s_master = 1
+$instance_name_prefix = "kube"
+$vm_gui = false
+$vm_cpus = 2
+$shared_folders = {}
+$forwarded_ports = {}
+$subnet = "192.168.34"
+$os = "ubuntu1804"
 
 $box = SUPPORTED_OS[$os][:box]
 
@@ -42,46 +39,18 @@ Vagrant.configure("2") do |config|
       end
 
       ip = "#{$subnet}.#{i+100}"
-      node.vm.network :private_network, ip: ip, virtualbox__intnet: "kubernetes"
+      node.vm.network :private_network, ip: ip
 
       node.vm.provision "shell", run: "always", inline: "swapoff -a"
 
-      node.vm.provision "shell", inline: <<-SHELL
-        apt-get update
-        apt-get install -y docker.io apt-transport-https curl
-        systemctl start docker
-        systemctl enable docker
-        curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-        apt-add-repository 'deb http://apt.kubernetes.io/ kubernetes-xenial main'
-        apt-get update
-        apt-get install -y kubelet kubeadm kubectl
-        systemctl enable kubelet
-      SHELL
-
-#      node.vm.provision "shell", run: "always", inline: <<-SHELL
-#        HOST_IP=`netstat -rn | grep "^0.0.0.0 " | cut -d " " -f10`
-#        echo '{ "insecure-registries":["HOST_IP:5000"] }' > /etc/docker/daemon.json
-#        sed -ie -e "s/HOST_IP/${HOST_IP}/g" /etc/docker/daemon.json
-#        systemctl restart docker
-#      SHELL
-
       if i == $num_k8s_master
         node.vm.provider :virtualbox do |vb|
-          vb.memory = 4096
+          vb.memory = 2048
         end
 
-        node.vm.network "forwarded_port", guest: 6443, host: 16443, host_ip: "127.0.0.1", auto_correct: true
-        node.vm.network "forwarded_port", guest: 2379, host: 12379, host_ip: "127.0.0.1", auto_correct: true
-        node.vm.network "forwarded_port", guest: 22, host: "#{i+10025}", host_ip: "127.0.0.1", auto_correct: true
-
-        node.vm.provision "shell", inline: <<-SHELL
-          kubeadm init --pod-network-cidr=10.244.10.0/16 --apiserver-cert-extra-sans=127.0.0.1
-          mkdir /home/vagrant/.kube
-          cp /etc/kubernetes/admin.conf /home/vagrant/.kube/config
-          chown vagrant:vagrant /home/vagrant/.kube/config
-          kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml
-          kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/master-
-        SHELL
+        # node.vm.provision "shell", inline: <<-SHELL
+        #   /vagrant/install_k8s.sh -n master -i eth1 -p flannel -u vagrant
+        # SHELL
 
       else
         node.vm.provider :virtualbox do |vb|
