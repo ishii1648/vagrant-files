@@ -69,10 +69,10 @@ systemctl daemon-reload
 systemctl restart kubelet
 
 if [[ $NODE_TYPE == "master" ]]; then
-    if [[ $NETWORK_TYPE == "flannel" ]]; then
+    if [[ $NETWORK_PLUGIN == "flannel" ]]; then
         pod_network_cidr=10.244.10.0/16
         manifest_url='https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml'
-    elif [[ $NETWORK_TYPE == "calico" ]]; then
+    elif [[ $NETWORK_PLUGIN == "calico" ]]; then
         pod_network_cidr=192.168.128.0/16
         manifest_url='https://docs.projectcalico.org/manifests/calico.yaml'
     fi
@@ -91,7 +91,4 @@ if [[ $NODE_TYPE == "master" ]]; then
     chmod +x /etc/kubeadm_join_cmd.sh
     # disable restrict set pod on master node
     kubectl taint nodes --all node-role.kubernetes.io/master-
-
-elif [[ $NODE_TYPE == "worker" ]]; then
-    # install k8s on worker node
 fi
