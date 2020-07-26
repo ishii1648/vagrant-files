@@ -52,12 +52,16 @@ elif [ $NETWORK_PLUGIN != "flannel" ] && [ $NETWORK_PLUGIN != "calico" ]; then
 fi
 
 
-# install dependency modules
 myip=`ip a show ${INTERFACE} | grep inet | grep -v inet6 | awk '{print $2}' | cut -f1 -d/`
+# install dependency modules
 sudo apt-get update && sudo apt-get install -y apt-transport-https curl docker.io
-echo '{ "exec-opts": ["native.cgroupdriver=systemd"] }' > /etc/docker/daemon.json
+# setting about docker
+echo '{ "exec-opts": ["native.cgroupdriver=systemd"], "experimental": true }' > /etc/docker/daemon.json
 systemctl start docker
 systemctl enable docker
+gpasswd -a $USER docker
+echo 'export DOCKER_BUILDKIT=1' >> /home/${USER}/.bashrc
+# install k8s component
 curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
 apt-add-repository 'deb http://apt.kubernetes.io/ kubernetes-xenial main'
 apt-get update
