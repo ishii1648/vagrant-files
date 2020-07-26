@@ -24,6 +24,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.box = $box
   config.ssh.username = SUPPORTED_OS[$os][:user]
+  config.vm.synced_folder "/Users/sho/workspace", "/home/vagrant/workspace", owner: "vagrant", group: "vagrant"
 
   (1..$num_instances).each do |i|
     config.vm.define vm_name = "%s-%01d" % [$instance_name_prefix, i] do |node|
