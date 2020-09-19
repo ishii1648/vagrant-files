@@ -1,0 +1,27 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.require_version ">= 2.0.0"
+
+$num_instances = 3
+$instance_memory = "512"
+$subnet = "192.168.35"
+$instance_name_prefix = "etcd"
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-18.04"
+
+  (1..$num_instances).each do |i|
+    config.vm.define vm_name = "%s-%01d" % [$instance_name_prefix, i] do |node|
+
+      node.vm.hostname = vm_name
+
+      node.vm.provider :virtualbox do |vb|
+        vb.memory = $instance_memory
+      end
+
+      ip = "#{$subnet}.#{i+100}"
+      node.vm.network :private_network, ip: ip
+    end
+  end
+end
